@@ -1,51 +1,66 @@
 import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
 import numpy as np
 
-load_data = np.loadtxt('./csv/diabetes.csv', delimiter=',')
+mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
-x_data = load_data[:, 0:-1]
-t_data = load_data[:, [-1]]
+print(mnist.train.num_examples, mnist.test.num_examples, mnist.validation.num_examples)
 
-print("x_data.shape: ", x_data.shape)
-print("t_data.shape: ", t_data.shape)
+print("train image shape: ", np.shape(mnist.train.images))
+print("train label shape: ", np.shape(mnist.train.labels))
+print("test image shape: ", np.shape(mnist.test.images))
+print("test label shape: ", np.shape(mnist.test.labels))
 
-
-X = tf.placeholder(tf.float32, [None, 8])
-T = tf.placeholder(tf.float32, [None, 1])
-
-W = tf.Variable(tf.random_normal([8, 1]))
-b = tf.Variable(tf.random_normal([1]))
-
-z = tf.matmul(X, W) + b # 선형회귀 값 z
-y = tf.sigmoid(z) # sigmoid 로 계산
-
-loss = -tf.reduce_mean(T*tf.log(y) + (1-T)*tf.log(1-y)) # 손실함수는 Cross Entropy
 learning_rate = 0.01 # 학습률
-optimizer = tf.train.GradientDescentOptimizer(learning_rate) # 경사하강법 알고리즘 적용되는 optimizer
-train = optimizer.minimize(loss) # optimizer 를 통한 손실함수 최소화
+epochs = 100 # 반복횟수
+batch_size = 100 # 한번에 입력으로 주어지는 MNIST 개수
 
-# sigmoid 값 y 형상(shape) dms (759X8) dot (8X1) = 759X1 임
-# 즉 y > 0.5 라는 것은 759개의 모든 데이터에 대해 y > 0.5 비교하여 총 759개의 True 또는 False 리턴함
-predicted = tf.cast(y > 0.5, dtype=tf.float32)
+input_nodes = 784 # 입력노드 개수
+hidden_nodes = 100 # 은닉노드 개수
+output_nodes = 10 # 출력노드 개수
 
-# tf.reduce_mean = 데이터의 평균계산
-# tf.cast(tf.equal(predicted, T): predicted 와 T 같으면 True, 아니면 False 를 리턴하므로,
-# tf.cast 를 이용하여 1 또는 0으로 변환해서 총 759개의 1 또는 0을 가짐
-accuracy = tf.reduce_mean(tf.cast(tf.equal(predicted, T), dtype=tf.float32))
+X = tf.placeholder(tf.float32, [None, input_nodes])
+T = tf.placeholder(tf.float32, [None, output_nodes])
+
+W2 = tf.Variable(tf.random_normal([input_nodes, hidden_nodes])) # 은닉층 가중치 노드
+b2 = tf.Variable(tf.random_normal([hidden_nodes])) # 은닉층 바이어스 노드
+
+W3 = tf.Variable(tf.random_normal([hidden_nodes, output_nodes])) # 출력층 가중치 노드
+b3 = tf.Variable(tf.random_normal([output_nodes])) # 출력층 바이어스 노드
+
+Z2 = tf.matmul(X, W2) + b2 # 은닉층 선형회귀 값 Z2
+A2 = tf.nn.relu(Z2) # 은닉층 출력 값 A2, sigmoid 대신 relu 사용
+
+# 출력층 선형회귀 값 Z3, 즉 softmax 에 들어가는 입력 값
+Z3 = logits = tf.matmul(A2, W3) + b3
+y = A3 = tf.nn.softmax(Z3)
+
+# 출력층 선형회귀 값(logits) Z3와 정답 T를 이용하여 손실함수 크로스 엔트로피(cross entropy) 계산
+loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=Z3, labels=T))
+
+optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+train = optimizer.minimize(loss)
+
+# batch_size X 10 데이터에 대해 argmax 를 통해 행단위로 비교함
+predicted_val = tf.equal(tf.argmax(A3, 1), tf.argmax(T, 1)) # 출력층의 계싼 값 A3와 정답 T에 대해, 행 기준으로 값을 비교함
+
+# batch_size X 10 의 True, False 를 1 또는 0 으로 변환
+accuracy = tf.reduce_mean(tf.cast(predicted_val, dtype=tf.float32))
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer()) # 변수 노드(tf.Variable) 초기화
-
-    for step in range(20001):
-        # feed_dict 로 입력되는 데이터를 이용하여 수행되는 연산은 loss, train
-        loss_val, _ = sess.run([loss, train], feed_dict={X: x_data, T: t_data})
-
-        if step % 500 == 0:
-            print("step: ", step, " loss_Val: ", loss_val)
+    for i in range(epochs): # 100번 반복수행
+        total_batch = int(mnist.train.num_examples / batch_size) # 55,000 / 100
+        for step in range(total_batch):
+            batch_x_data, batch_t_data = mnist.train.next_batch(batch_size)
+            loss_val, _ = sess.run([loss, train], feed_dict={X: batch_x_data, T: batch_t_data})
+            if step % 100 == 0:
+                print("step: ", step, " loss_Val: ", loss_val)
 
     # Accuracy 확인
-    # feed_dict 로 입력되는 데이터를 이용하여 수행되는 연산은 y, predicted, accuracy
-    y_val, predicted_val, accuracy_val = sess.run([y, predicted, accuracy], feed_dict={X: x_data, T: t_data})
+    test_x_data = mnist.test.images # 10000 X 784
+    test_t_data = mnist.test.labels # 10000 X 10
 
-    print("y_val.shape: ", y_val.shape, " predicted_val.shape: ", predicted_val.shape)
-    print("accuracy:  ", accuracy_val)
+    accuracy_val = sess.run(accuracy, feed_dict={X: test_x_data, T: test_t_data})
+
+    print("Accuracy: ", accuracy_val)
